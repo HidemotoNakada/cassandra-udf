@@ -319,7 +319,16 @@ public class CassandraServer implements Cassandra.Iface
         }
     }
 
-    public Map<ByteBuffer, List<ColumnOrSuperColumn>> multiget_slice(List<ByteBuffer> keys, ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level)
+    public Map<ByteBuffer, List<ColumnOrSuperColumn>> multiget_slice(List<ByteBuffer> keys, 
+    		ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level) 
+    		throws InvalidRequestException, UnavailableException, TimedOutException {
+
+    	return multiget_slice_udf(keys, column_parent, predicate, consistency_level, null);
+
+    }
+    
+    public Map<ByteBuffer, List<ColumnOrSuperColumn>> multiget_slice_udf(List<ByteBuffer> keys, 
+    		ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level, String udf)
     throws InvalidRequestException, UnavailableException, TimedOutException
     {
         if (startSessionIfRequested())
@@ -343,7 +352,7 @@ public class CassandraServer implements Cassandra.Iface
             ClientState cState = state();
             String keyspace = cState.getKeyspace();
             cState.hasColumnFamilyAccess(keyspace, column_parent.column_family, Permission.SELECT);
-            return multigetSliceInternal(keyspace, keys, column_parent, predicate, consistency_level);
+            return multigetSliceInternal(keyspace, keys, column_parent, predicate, consistency_level, udf);
         }
         catch (RequestValidationException e)
         {
@@ -355,7 +364,15 @@ public class CassandraServer implements Cassandra.Iface
         }
     }
 
-    private Map<ByteBuffer, List<ColumnOrSuperColumn>> multigetSliceInternal(String keyspace, List<ByteBuffer> keys, ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level)
+    private Map<ByteBuffer, List<ColumnOrSuperColumn>> multigetSliceInternal(String keyspace, List<ByteBuffer> keys, 
+    		ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level)
+    throws org.apache.cassandra.exceptions.InvalidRequestException, UnavailableException, TimedOutException 
+    {
+    	return multigetSliceInternal(keyspace, keys, column_parent, predicate, consistency_level, null);
+    }
+    		
+    private Map<ByteBuffer, List<ColumnOrSuperColumn>> multigetSliceInternal(String keyspace, List<ByteBuffer> keys, 
+    		ColumnParent column_parent, SlicePredicate predicate, ConsistencyLevel consistency_level, String udf)
     throws org.apache.cassandra.exceptions.InvalidRequestException, UnavailableException, TimedOutException
     {
         CFMetaData metadata = ThriftValidation.validateColumnFamily(keyspace, column_parent.column_family);
@@ -371,7 +388,7 @@ public class CassandraServer implements Cassandra.Iface
             for (ByteBuffer key: keys)
             {
                 ThriftValidation.validateKey(metadata, key);
-                commands.add(new SliceByNamesReadCommand(keyspace, key, column_parent, predicate.column_names));
+                commands.add(new SliceByNamesReadCommand(keyspace, key, column_parent, predicate.column_names, udf));
             }
         }
         else

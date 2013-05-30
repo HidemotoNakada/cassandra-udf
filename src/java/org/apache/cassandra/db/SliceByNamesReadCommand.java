@@ -23,48 +23,94 @@ import java.util.*;
 
 import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.thrift.CassandraServer;
 import org.apache.cassandra.thrift.ColumnParent;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class SliceByNamesReadCommand extends ReadCommand
 {
-    public final NamesQueryFilter filter;
+	private static final Logger logger = LoggerFactory.getLogger(SliceByNamesReadCommand.class);
 
-    public SliceByNamesReadCommand(String table, ByteBuffer key, ColumnParent column_parent, Collection<ByteBuffer> columnNames)
+	public final NamesQueryFilter filter;
+	public String udfString = null;
+	
+	
+  public SliceByNamesReadCommand(String table, ByteBuffer key, ColumnParent column_parent, Collection<ByteBuffer> columnNames) 
+  {
+  	this(table, key, column_parent, columnNames, null);
+  }
+
+  public SliceByNamesReadCommand(String table, ByteBuffer key, QueryPath path, Collection<ByteBuffer> columnNames)
+  {
+  	this(table, key, path, columnNames, null);
+  }
+	
+	public SliceByNamesReadCommand(String table, ByteBuffer key, ColumnParent column_parent, Collection<ByteBuffer> columnNames,
+  		String udf)
     {
-        this(table, key, new QueryPath(column_parent), columnNames);
+        this(table, key, new QueryPath(column_parent), columnNames, udf);
     }
 
-    public SliceByNamesReadCommand(String table, ByteBuffer key, QueryPath path, Collection<ByteBuffer> columnNames)
+  public SliceByNamesReadCommand(String table, ByteBuffer key, QueryPath path, Collection<ByteBuffer> columnNames, String udf)
     {
         super(table, key, path, CMD_TYPE_GET_SLICE_BY_NAMES);
         SortedSet s = new TreeSet<ByteBuffer>(getComparator());
         s.addAll(columnNames);
         this.filter = new NamesQueryFilter(s);
+        this.udfString = udf;
     }
 
-    public SliceByNamesReadCommand(String table, ByteBuffer key, QueryPath path, NamesQueryFilter filter)
+  public SliceByNamesReadCommand(String table, ByteBuffer key, QueryPath path, NamesQueryFilter filter) 
+  {
+  	this(table, key, path, filter, null);
+  }
+  
+    public SliceByNamesReadCommand(String table, ByteBuffer key, QueryPath path, NamesQueryFilter filter, String udf)
     {
         super(table, key, path, CMD_TYPE_GET_SLICE_BY_NAMES);
         this.filter = filter;
+        this.udfString = udf;
     }
 
     public ReadCommand copy()
     {
-        ReadCommand readCommand= new SliceByNamesReadCommand(table, key, queryPath, filter);
+        ReadCommand readCommand= new SliceByNamesReadCommand(table, key, queryPath, filter, udfString);
         readCommand.setDigestQuery(isDigestQuery());
         return readCommand;
     }
 
-    public Row getRow(Table table)
+    public Row getRow(Table table) 
     {
-        DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
-        return table.getRow(new QueryFilter(dk, queryPath, filter));
+   	  logger.error("" + UTF8Type.instance.getString(key) + " : udf = " + udfString);
+    	DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
+      Row	row =  table.getRow(new QueryFilter(dk, queryPath, filter));
+
+
+  		if (udfString == null)
+  			return row;
+  		
+  		UDF udfObj = null;
+  		try {
+  			udfObj = UDFFactory.create(udfString);
+  		} catch (Exception e) {
+  			logger.error("failed to parse udf as json. fall back to the normal operation", e);
+  		}
+  		try {
+  			return udfObj.modify(row, udfString);
+  		} catch (Exception e) {
+  			logger.error("failed to execute udf. fall back to the normal oepration", e);
+  			return row;
+  		}
+  		
     }
 
-    @Override
+  	
     public String toString()
     {
         return "SliceByNamesReadCommand(" +
@@ -91,6 +137,12 @@ class SliceByNamesReadCommandSerializer implements IVersionedSerializer<ReadComm
         ByteBufferUtil.writeWithShortLength(command.key, dos);
         command.queryPath.serialize(dos);
         NamesQueryFilter.serializer.serialize(command.filter, dos, version);
+        if (command.udfString == null) {
+        	dos.writeBoolean(false);
+        } else {
+        	dos.writeBoolean(true);
+        	dos.writeUTF(command.udfString);
+        }
     }
 
     public SliceByNamesReadCommand deserialize(DataInput dis, int version) throws IOException
@@ -102,7 +154,11 @@ class SliceByNamesReadCommandSerializer implements IVersionedSerializer<ReadComm
 
         AbstractType<?> comparator = ColumnFamily.getComparatorFor(table, columnParent.columnFamilyName, columnParent.superColumnName);
         NamesQueryFilter filter = NamesQueryFilter.serializer.deserialize(dis, version, comparator);
-        SliceByNamesReadCommand command = new SliceByNamesReadCommand(table, key, columnParent, filter);
+        String udf = null;
+        if (dis.readBoolean())
+        	udf = dis.readUTF();
+        
+        SliceByNamesReadCommand command = new SliceByNamesReadCommand(table, key, columnParent, filter, udf);
         command.setDigestQuery(isDigest);
         return command;
     }
@@ -118,6 +174,9 @@ class SliceByNamesReadCommandSerializer implements IVersionedSerializer<ReadComm
         size += sizes.sizeof((short)keySize) + keySize;
         size += command.queryPath.serializedSize(sizes);
         size += NamesQueryFilter.serializer.serializedSize(command.filter, version);
+        size += sizes.sizeof(true);
+        if (command.udfString != null) 
+          size += sizes.sizeof(command.udfString);
         return size;
     }
 }
