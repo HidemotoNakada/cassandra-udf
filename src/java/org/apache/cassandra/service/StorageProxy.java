@@ -1183,7 +1183,8 @@ public class StorageProxy implements StorageProxyMBean
                                                                   command.row_filter,
                                                                   command.maxResults,
                                                                   command.countCQL3Rows,
-                                                                  command.isPaging);
+                                                                  command.isPaging,
+                                                                  command.udfString);
 
                 // collect replies and resolve according to consistency level
                 RangeSliceResponseResolver resolver = new RangeSliceResponseResolver(nodeCmd.keyspace);

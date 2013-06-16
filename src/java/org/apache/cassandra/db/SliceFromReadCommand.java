@@ -29,6 +29,7 @@ import org.apache.cassandra.db.filter.IDiskAtomFilter;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.filter.QueryPath;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
+import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.service.RowDataResolver;
 import org.apache.cassandra.service.StorageService;
@@ -37,10 +38,11 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class SliceFromReadCommand extends ReadCommand
 {
-    static final Logger logger = LoggerFactory.getLogger(SliceFromReadCommand.class);
+	static final Logger logger = LoggerFactory.getLogger(SliceFromReadCommand.class);
 
     public final SliceQueryFilter filter;
-
+    public String udfString = null;
+    
     public SliceFromReadCommand(String table, ByteBuffer key, ColumnParent column_parent, ByteBuffer start, ByteBuffer finish, boolean reversed, int count)
     {
         this(table, key, new QueryPath(column_parent), start, finish, reversed, count);
@@ -56,6 +58,22 @@ public class SliceFromReadCommand extends ReadCommand
         super(table, key, path, CMD_TYPE_GET_SLICE);
         this.filter = filter;
     }
+    public SliceFromReadCommand(String table, ByteBuffer key, ColumnParent column_parent, ByteBuffer start, ByteBuffer finish, boolean reversed, int count, String udfString)
+    {
+        this(table, key, new QueryPath(column_parent), start, finish, reversed, count, udfString);
+    }
+
+    public SliceFromReadCommand(String table, ByteBuffer key, QueryPath path, ByteBuffer start, ByteBuffer finish, boolean reversed, int count, String udfString)
+    {
+        this(table, key, path, new SliceQueryFilter(start, finish, reversed, count), udfString);
+    }
+
+    public SliceFromReadCommand(String table, ByteBuffer key, QueryPath path, SliceQueryFilter filter, String udfString)
+    {
+        super(table, key, path, CMD_TYPE_GET_SLICE);
+        this.filter = filter;
+        this.udfString = udfString;
+    }
 
     public ReadCommand copy()
     {
@@ -66,8 +84,26 @@ public class SliceFromReadCommand extends ReadCommand
 
     public Row getRow(Table table)
     {
-        DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
-        return table.getRow(new QueryFilter(dk, queryPath, filter));
+   	  logger.error("" + UTF8Type.instance.getString(key) + " : udf = " + udfString);
+   	  DecoratedKey dk = StorageService.getPartitioner().decorateKey(key);
+        Row row =  table.getRow(new QueryFilter(dk, queryPath, filter));
+
+    		if (udfString == null)
+    			return row;
+    		
+    		UDF udfObj = null;
+    		try {
+    			udfObj = UDFFactory.create(udfString);
+    		} catch (Exception e) {
+    			logger.error("failed to parse udf as json. fall back to the normal operation", e);
+    		}
+    		try {
+    			return udfObj.modify(row, udfString);
+    		} catch (Exception e) {
+    			logger.error("failed to execute udf. fall back to the normal oepration", e);
+    			return row;
+    		}
+    
     }
 
     @Override
@@ -143,6 +179,12 @@ class SliceFromReadCommandSerializer implements IVersionedSerializer<ReadCommand
         ByteBufferUtil.writeWithShortLength(realRM.key, dos);
         realRM.queryPath.serialize(dos);
         SliceQueryFilter.serializer.serialize(realRM.filter, dos, version);
+        if ((realRM.udfString) == null) {
+        	dos.writeBoolean(false);
+        } else {
+        	dos.writeBoolean(true);
+        	dos.writeUTF(realRM.udfString);
+        }
     }
 
     public ReadCommand deserialize(DataInput dis, int version) throws IOException
@@ -152,7 +194,11 @@ class SliceFromReadCommandSerializer implements IVersionedSerializer<ReadCommand
         ByteBuffer key = ByteBufferUtil.readWithShortLength(dis);
         QueryPath path = QueryPath.deserialize(dis);
         SliceQueryFilter filter = SliceQueryFilter.serializer.deserialize(dis, version);
-        SliceFromReadCommand rm = new SliceFromReadCommand(table, key, path, filter);
+        String udf = null;
+        if (dis.readBoolean()) 
+        	udf = dis.readUTF();
+        
+        SliceFromReadCommand rm = new SliceFromReadCommand(table, key, path, filter, udf);
         rm.setDigestQuery(isDigest);
         return rm;
     }
@@ -168,6 +214,9 @@ class SliceFromReadCommandSerializer implements IVersionedSerializer<ReadCommand
         size += sizes.sizeof((short) keySize) + keySize;
         size += command.queryPath.serializedSize(sizes);
         size += SliceQueryFilter.serializer.serializedSize(command.filter, version);
+        size += sizes.sizeof(true);
+        if (command.udfString != null) 
+          size += sizes.sizeof(command.udfString);        
         return size;
     }
 }

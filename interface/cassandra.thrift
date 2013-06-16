@@ -575,6 +575,16 @@ service Cassandra {
                                         throws (1:InvalidRequestException ire, 2:UnavailableException ue, 3:TimedOutException te),
 
   /**
+    Performs a get_slice for column_parent and predicate for the given keys in parallel with udf.
+  */
+  map<binary,list<ColumnOrSuperColumn>> multiget_slice_udf(1:required list<binary> keys, 
+                                                       2:required ColumnParent column_parent, 
+                                                       3:required SlicePredicate predicate, 
+                                                       4:required ConsistencyLevel consistency_level=ConsistencyLevel.ONE,
+                                                       5:optional string udf)
+                                        throws (1:InvalidRequestException ire, 2:UnavailableException ue, 3:TimedOutException te),
+
+  /**
     Perform a get_count in parallel on the given list<binary> keys. The return value maps keys to the count found.
   */
   map<binary, i32> multiget_count(1:required list<binary> keys,
@@ -590,6 +600,16 @@ service Cassandra {
                                   2:required SlicePredicate predicate,
                                   3:required KeyRange range,
                                   4:required ConsistencyLevel consistency_level=ConsistencyLevel.ONE)
+                 throws (1:InvalidRequestException ire, 2:UnavailableException ue, 3:TimedOutException te),
+
+  /**
+   returns a subset of columns for a contiguous range of keys.
+  */
+  list<KeySlice> get_range_slices_udf(1:required ColumnParent column_parent, 
+                                  2:required SlicePredicate predicate,
+                                  3:required KeyRange range,
+                                  4:required ConsistencyLevel consistency_level=ConsistencyLevel.ONE,
+                                  5:optional string udf)
                  throws (1:InvalidRequestException ire, 2:UnavailableException ue, 3:TimedOutException te),
 
   /**

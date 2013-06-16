@@ -85,7 +85,8 @@ public class RangeSliceCommand implements IReadCommand
     public final int maxResults;
     public final boolean countCQL3Rows;
     public final boolean isPaging;
-
+    public String udfString;
+    
     public RangeSliceCommand(String keyspace, String column_family, ByteBuffer super_column, IDiskAtomFilter predicate, AbstractBounds<RowPosition> range, int maxResults)
     {
         this(keyspace, column_family, super_column, predicate, range, null, maxResults, false, false);
@@ -95,13 +96,23 @@ public class RangeSliceCommand implements IReadCommand
     {
         this(keyspace, column_parent.getColumn_family(), column_parent.super_column, predicate, range, row_filter, maxResults, false, false);
     }
+    
+    public RangeSliceCommand(String keyspace, ColumnParent column_parent, IDiskAtomFilter predicate, AbstractBounds<RowPosition> range, List<IndexExpression> row_filter, int maxResults, String udfString)
+    {
+        this(keyspace, column_parent.getColumn_family(), column_parent.super_column, predicate, range, row_filter, maxResults, false, false, udfString);
+    }
 
     public RangeSliceCommand(String keyspace, String column_family, ByteBuffer super_column, IDiskAtomFilter predicate, AbstractBounds<RowPosition> range, List<IndexExpression> row_filter, int maxResults)
     {
-        this(keyspace, column_family, super_column, predicate, range, row_filter, maxResults, false, false);
+    	  this(keyspace, column_family, super_column, predicate, range, row_filter, maxResults, false, false);
     }
 
     public RangeSliceCommand(String keyspace, String column_family, ByteBuffer super_column, IDiskAtomFilter predicate, AbstractBounds<RowPosition> range, List<IndexExpression> row_filter, int maxResults, boolean countCQL3Rows, boolean isPaging)
+    {
+    	  this(keyspace, column_family, super_column, predicate, range, row_filter, maxResults, countCQL3Rows, isPaging, null);
+    }
+    
+    public RangeSliceCommand(String keyspace, String column_family, ByteBuffer super_column, IDiskAtomFilter predicate, AbstractBounds<RowPosition> range, List<IndexExpression> row_filter, int maxResults, boolean countCQL3Rows, boolean isPaging, String udfString)
     {
         this.keyspace = keyspace;
         this.column_family = column_family;
@@ -112,6 +123,7 @@ public class RangeSliceCommand implements IReadCommand
         this.maxResults = maxResults;
         this.countCQL3Rows = countCQL3Rows;
         this.isPaging = isPaging;
+        this.udfString = udfString;
     }
 
     public MessageOut<RangeSliceCommand> createMessage()
@@ -243,6 +255,13 @@ class RangeSliceCommandSerializer implements IVersionedSerializer<RangeSliceComm
             dos.writeBoolean(sliceCommand.countCQL3Rows);
             dos.writeBoolean(sliceCommand.isPaging);
         }
+        if (sliceCommand.udfString == null) {
+        	dos.writeBoolean(false);
+        } else {
+        	dos.writeBoolean(true);
+        	dos.writeUTF(sliceCommand.udfString);
+        }
+        
     }
 
     public RangeSliceCommand deserialize(DataInput dis, int version) throws IOException
@@ -304,7 +323,10 @@ class RangeSliceCommandSerializer implements IVersionedSerializer<RangeSliceComm
             countCQL3Rows = dis.readBoolean();
             isPaging = dis.readBoolean();
         }
-        return new RangeSliceCommand(keyspace, columnFamily, superColumn, predicate, range, rowFilter, maxResults, countCQL3Rows, isPaging);
+        String udf = null;
+        if (dis.readBoolean())
+        	udf = dis.readUTF();     
+        return new RangeSliceCommand(keyspace, columnFamily, superColumn, predicate, range, rowFilter, maxResults, countCQL3Rows, isPaging, udf);
     }
 
     public long serializedSize(RangeSliceCommand rsc, int version)
@@ -383,6 +405,9 @@ class RangeSliceCommandSerializer implements IVersionedSerializer<RangeSliceComm
             size += TypeSizes.NATIVE.sizeof(rsc.countCQL3Rows);
             size += TypeSizes.NATIVE.sizeof(rsc.isPaging);
         }
+        size += TypeSizes.NATIVE.sizeof(true);
+        if (rsc.udfString != null) 
+          size += TypeSizes.NATIVE.sizeof(rsc.udfString);        
         return size;
     }
 }

@@ -397,7 +397,7 @@ public class CassandraServer implements Cassandra.Iface
             for (ByteBuffer key: keys)
             {
                 ThriftValidation.validateKey(metadata, key);
-                commands.add(new SliceFromReadCommand(keyspace, key, column_parent, range.start, range.finish, range.reversed, range.count));
+                commands.add(new SliceFromReadCommand(keyspace, key, column_parent, range.start, range.finish, range.reversed, range.count, udf));
             }
         }
 
@@ -912,6 +912,12 @@ public class CassandraServer implements Cassandra.Iface
     public List<KeySlice> get_range_slices(ColumnParent column_parent, SlicePredicate predicate, KeyRange range, ConsistencyLevel consistency_level)
     throws InvalidRequestException, UnavailableException, TException, TimedOutException
     {
+    	return get_range_slices_udf(column_parent, predicate, range, consistency_level, null);
+    }
+    
+    public List<KeySlice> get_range_slices_udf(ColumnParent column_parent, SlicePredicate predicate, KeyRange range, ConsistencyLevel consistency_level, String udfString)
+    throws InvalidRequestException, UnavailableException, TException, TimedOutException
+    {
         if (startSessionIfRequested())
         {
             Map<String, String> traceParameters = ImmutableMap.of(
@@ -967,6 +973,7 @@ public class CassandraServer implements Cassandra.Iface
                 IDiskAtomFilter filter = ThriftValidation.asIFilter(predicate, metadata.getComparatorFor(column_parent.super_column));
                 rows = StorageProxy.getRangeSlice(new RangeSliceCommand(keyspace, column_parent, filter, bounds,
                                                                         range.row_filter, range.count), consistencyLevel);
+                                                                       
             }
             finally
             {

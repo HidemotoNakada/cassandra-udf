@@ -1,0 +1,4 @@
+
+git remote add udfrepo https://github.com/HidemotoNakada/cassandra-udf.git
+git push --mirror udfrepo
+
